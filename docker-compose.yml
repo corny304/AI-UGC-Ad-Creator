@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: adspark-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: adspark
+      POSTGRES_PASSWORD: adspark_secret
+      POSTGRES_DB: adspark_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U adspark -d adspark_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for Queue Jobs
+  redis:
+    image: redis:7-alpine
+    container_name: adspark-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Next.js Application (Development)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: adspark-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://adspark:adspark_secret@postgres:5432/adspark_db
+      - REDIS_URL=redis://redis:6379
+      - NODE_ENV=production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./.env:/app/.env:ro
+
+  # Queue Worker
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: adspark-worker
+    restart: unless-stopped
+    command: npm run worker
+    environment:
+      - DATABASE_URL=postgresql://adspark:adspark_secret@postgres:5432/adspark_db
+      - REDIS_URL=redis://redis:6379
+      - NODE_ENV=production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./.env:/app/.env:ro
+
+volumes:
+  postgres_data:
+  redis_data:
